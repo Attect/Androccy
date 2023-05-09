@@ -5,17 +5,20 @@ import org.usb4java.Device
 import org.usb4java.DeviceHandle
 import org.usb4java.LibUsb
 import java.io.Closeable
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.IntBuffer
 import kotlin.coroutines.CoroutineContext
 
+/**
+ * Android 配件设备<br>
+ * 对其进行读写、释放等操作
+ */
 class AccessoryDevice(val device: Device) : LibUsbOperator(), Closeable, CoroutineScope {
     override val coroutineContext: CoroutineContext
         get() = Dispatchers.Default
 
     private val deviceHandle = DeviceHandle()
-
-    private var isOpen = false
 
     private val inBuffer by lazy {
         ByteBuffer.allocateDirect(BUFFER_SIZE)
@@ -30,15 +33,21 @@ class AccessoryDevice(val device: Device) : LibUsbOperator(), Closeable, Corouti
 
     private var readJob:Job? = null
 
+    private var isClose = false
+
 
     init {
         LibUsb.open(device, deviceHandle).throwOnFailedCode("无法打开设备")
         LibUsb.claimInterface(deviceHandle, 0).throwOnFailedCode("打开设备接口失败")
-        isOpen = true
     }
 
-    fun read(reader: (byteArray: ByteArray, length: Int) -> Unit): Job = launch {
-        while (isActive) {
+    /**
+     * 读取数据<br>
+     * 每当有数据到来，[reader]将被调用，并传递读取到的数据和
+     */
+    fun read(reader: (byteArray: ByteArray) -> Unit): Job = launch {
+        if(isClose) throw IllegalStateException("设备已断开")
+        while (isActive && !isClose) {
             withContext(Dispatchers.IO) {
                 LibUsb.bulkTransfer(deviceHandle, 0x81.toByte(), inBuffer, inTransfered, 0).throwOnFailedCode("读取数据时发生错误")
             }
@@ -48,15 +57,20 @@ class AccessoryDevice(val device: Device) : LibUsbOperator(), Closeable, Corouti
             if(length > 0){
                 val byteArray = ByteArray(length)
                 inBuffer.get(byteArray)
-                reader.invoke(byteArray, length)
+                reader.invoke(byteArray)
             }
         }
     }.also { readJob = it }
 
-    suspend fun write(byteArray: ByteArray, offset: Int = 0, length: Int = byteArray.size) {
+    /**
+     * 发送数据<br>
+     * 数据是分包发送的
+     */
+    suspend fun write(byteArray: ByteArray, offset: Int = 0, length: Int = byteArray.size):Result<Unit> = runCatching {
+        if (isClose) throw IllegalStateException("设备已断开")
         var currentOffset = offset
         var remaining = length
-        while (remaining > 0) {
+        while (remaining > 0 && !isClose) {
             val buffer: ByteBuffer
             if (remaining > BUFFER_SIZE) {
                 buffer = maxOutBuffer
@@ -82,8 +96,12 @@ class AccessoryDevice(val device: Device) : LibUsbOperator(), Closeable, Corouti
 
 
     override fun close() {
+        isClose = true
         runCatching {
             readJob?.cancel()
+        }
+        runCatching {
+            LibUsb.releaseInterface(deviceHandle,0)
         }
         runCatching {
             LibUsb.close(deviceHandle)

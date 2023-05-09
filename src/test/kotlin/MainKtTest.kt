@@ -13,7 +13,6 @@ class MainKtTest:CoroutineScope{
         runBlocking {
             val server= AndroccyServer("AttectStudio","Demo","AccessoryDemo","1.0","https://attect.studio")
             initAndroidUsbDeviceId(server)
-            server.startWatchEvent()
 //    server.refreshDevice()
             launch {
                 while (isActive){
@@ -24,22 +23,26 @@ class MainKtTest:CoroutineScope{
                         var i = 0
                         val lengthBuffer = ByteBuffer.allocate(2)
                         while (isActive){
-                            delay(100L)
-                            val content = "server->device:$i"
+                            delay(1000L)
+                            val content = "number:$i"
                             i++
                             lengthBuffer.position(0)
                             lengthBuffer.putShort(content.length.toShort())
                             val byteBuffer = ByteBuffer.allocate(2+content.length)
                             byteBuffer.put(lengthBuffer.array())
                             byteBuffer.put(content.encodeToByteArray())
-                            println("[${content.length}]$content")
-                            accessoryDevice.write(byteBuffer.array())
+                            println("[${content.length}]server->device:$content")
+                            if(accessoryDevice.write(byteBuffer.array()).also { it.exceptionOrNull()?.printStackTrace() }.isFailure){
+                                accessoryDevice.close()
+                                break
+                            }
                         }
                     }
                     launch {
                         val byteArrayOutputStream = ByteArrayOutputStream()
                         var textLength = -1
-                        accessoryDevice.read { byteArray, readCount ->
+                        accessoryDevice.read { byteArray ->
+                            val readCount = byteArray.size
 //                        println("device->server:${String(byteArray,2,readCount-2)}")
                             if(textLength < 0){
                                 if(readCount < 2){
@@ -63,6 +66,7 @@ class MainKtTest:CoroutineScope{
                     }
                 }
             }
+            server.startWatchEvent()
             server.join()
         }
     }
@@ -70,6 +74,8 @@ class MainKtTest:CoroutineScope{
     private suspend fun initAndroidUsbDeviceId(server: AndroccyServer){
         server.addUsbDeviceId(UsbDeviceId((0x2717).toShort(),(0xff48).toShort()))
         server.addUsbDeviceId(UsbDeviceId((0x2a70).toShort(),(0x4ee7).toShort())) // OnePlus Technology (Shenzhen) Co., Ltd. ONEPLUS A3010 [OnePlus 3T] / A5010 [OnePlus 5T] / A6003 [OnePlus 6] (Charging + USB debugging modes)
+        server.addUsbDeviceId(UsbDeviceId((0x2a70).toShort(),(0x9011).toShort())) // OnePlus Technology (Shenzhen) Co., Ltd. OnePlus
+        server.addUsbDeviceId(UsbDeviceId((0x2a70).toShort(),(0xf003).toShort())) // OnePlus Technology (Shenzhen) Co., Ltd. OnePlus
         server.addUsbDeviceId(UsbDeviceId((0x18d1).toShort(),(0x4ee7).toShort())) // Google Inc. Nexus/Pixel Device (charging + debug)
     }
 

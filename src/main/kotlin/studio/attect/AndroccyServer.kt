@@ -79,25 +79,12 @@ class AndroccyServer(
         androidUsbDeviceIdListLock.unlock()
     }
 
-    public suspend fun addUsbDeviceId(usbDeviceId: UsbDeviceId) {
+    /**
+     * 添加需要切换为配件模式的USB id信息
+     */
+    suspend fun addUsbDeviceId(usbDeviceId: UsbDeviceId) {
         useAndroidUsbDeviceIdList {
             it.add(usbDeviceId)
-        }
-    }
-
-    suspend fun refreshDevice() {
-        val deviceList = DeviceList()
-        LibUsb.init(null).throwOnFailedCode("初始化失败")
-        LibUsb.getDeviceList(null, deviceList).throwOnFailedCode("获取已连接USB设备列表时发生错误")
-
-        deviceList.forEach { device ->
-            val deviceDescriptor = DeviceDescriptor()
-            LibUsb.getDeviceDescriptor(device, deviceDescriptor).throwOnFailedCode("获取设备描述失败")
-            useAndroidUsbDeviceIdList { idList ->
-                androidUsbDeviceIdList.find { it.vendorId == deviceDescriptor.idVendor() && it.productId == deviceDescriptor.idProduct() }?.let {
-                    switchAndroidDeviceToAccessoryMode(device, deviceDescriptor)
-                }
-            }
         }
     }
 
@@ -117,8 +104,6 @@ class AndroccyServer(
                     LibUsb.HOTPLUG_EVENT_DEVICE_ARRIVED -> {
                         launch(coroutineContext) {
 //                            println("设备接入：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
-                            println(device.pointer)
-                            delay(1000)
                             useAndroidUsbDeviceIdList { idList ->
                                 androidUsbDeviceIdList.find { it.vendorId == deviceDescriptor.idVendor() && it.productId == deviceDescriptor.idProduct() }?.let {
                                     switchAndroidDeviceToAccessoryMode(device, deviceDescriptor)
@@ -140,19 +125,17 @@ class AndroccyServer(
                     }
 
                     LibUsb.HOTPLUG_EVENT_DEVICE_LEFT -> {
-                        println("设备断开：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
-                        println(device.pointer)
+//                        println("设备断开：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
                         activeAccessoryDeviceList.removeIf() {accessoryDevice->
                             (accessoryDevice.device == device).also { equal->
                                 if(equal){
-                                    println("移除配件")
+//                                    println("移除配件")
                                     accessoryDevice.close()
                                 }
                             }
                         }
                     }
                 }
-                //todo 处理设备情况
 
                 return 0
             }
@@ -167,8 +150,6 @@ class AndroccyServer(
             callback, null, callbackHandle
         ).throwOnFailedCode("无法监听热拔插事件")
 
-
-
         watchEventJob = launch {
             while (this.isActive) {
                 if (LibUsb.handleEventsTimeout(context, 1000000) != LibUsb.SUCCESS) {
@@ -178,13 +159,20 @@ class AndroccyServer(
         }
     }
 
+    /**
+     * 停止观察设备动态
+     */
     suspend fun stopWatchEvent() {
         watchEventJob?.cancelAndJoin()
         watchEventJob = null
     }
 
-    fun switchAndroidDeviceToAccessoryMode(device: Device, deviceDescriptor: DeviceDescriptor) {
-        println("切换设备到配件模式：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
+    /**
+     * 切换设备到配件模式<br>
+     * 未发生异常则为成功
+     */
+    private fun switchAndroidDeviceToAccessoryMode(device: Device, deviceDescriptor: DeviceDescriptor) {
+//        println("切换设备到配件模式：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
         val deviceHandle = DeviceHandle()
         try {
             LibUsb.open(device, deviceHandle).throwOnFailedCode("在切换设备到配件模式时，打开设备句柄失败")
@@ -225,7 +213,7 @@ class AndroccyServer(
             e.printStackTrace()
             return
         }
-        println("配件模式切换成功：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
+//        println("配件模式切换成功：VID_%04x,PID_%04x".format(deviceDescriptor.idVendor(), deviceDescriptor.idProduct()))
     }
 
     suspend fun join() {
